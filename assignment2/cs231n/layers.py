@@ -737,33 +737,25 @@ def spatial_groupnorm_backward(dout, cache):
     # TODO: Implement the backward pass for spatial group normalization.      #
     # This will be extremely similar to the layer norm implementation.        #
     ###########################################################################
-    x,gamma,beta,G,eps,cache_s=cache
-    N,C,H,W=x.shape
-    douts=np.split(dout,G,axis=1)
-    xbs=np.split(x,G,axis=1)
-    dgamma=np.zeros_like(gamma)
-    dbeta=np.zeros_like(beta)
-    dx=np.zeros_like(x)
-    for i in range(G):
-        dout=douts[i].transpose(0,2,3,1).reshape(-1,C//G)
-        dbeta[C//G*i:C//G*(i+1)]=np.sum(dout,axis=0)
-        x_=cache_s[i][0].transpose(0,2,3,1).reshape(-1,C//G)
-        dgamma[C//G*i:C//G*(i+1)]=np.sum(dout*x_,axis=0)
-        sample_mean=cache_s[i][1].reshape(-1,1)
-        sample_var=cache_s[i][2].reshape(-1,1)
-        x_block=xbs[i].reshape((N,-1))
-        
-        dx_=dout*gamma[C//G*i:C//G*(i+1)]
-        dx_=dx_.reshape(N,H,W,-1).transpose((0,3,1,2)).reshape((N,-1))
-        dvar=-0.5*np.sum(dx_*(x_block-sample_mean),axis=1).reshape(-1,1) \
-             *((sample_var+eps)**-1.5)
-        dmean=-np.sum(dx_/np.sqrt(sample_var+eps),axis=1).reshape(-1,1) \
-              -2*dvar*(np.sum(x_block-sample_mean,axis=1).reshape(-1,1))/(H*W*C//G)
-        dxb=dx_/np.sqrt(sample_var+eps)+2*dvar*(x_block-sample_mean)/(H*W*C//G)+dmean/(H*W*C//G)
-        dxb=dxb.reshape(N,C//G,H,W)
-        dx[:,C//G*i:C//G*(i+1),:,:]=dxb
-#        
+    N, C, H, W = dout.shape
+
+    xhat, gamma, xmu, ivar, sqrtvar, var, eps, G = cache
+
+    dxhat = dout * gamma[np.newaxis, :, np.newaxis, np.newaxis]
+
+    # Set keepdims=True to make dbeta and dgamma's shape be (1, C, 1, 1)
+    dbeta = np.sum(dout, axis=(0, 2, 3), keepdims=True)
+    dgamma = np.sum(dout*xhat, axis=(0, 2, 3), keepdims=True)
+
+    # Reshape and transpose back
+    dxhat = np.reshape(dxhat, (N*G, C//G*H*W)).T
+    xhat = np.reshape(xhat, (N*G, C//G*H*W)).T
+
+    Nprime, Dprime = dxhat.shape
     
+    dx = 1.0/Nprime * ivar * (Nprime*dxhat - np.sum(dxhat, axis=0) - xhat*np.sum(dxhat*xhat, axis=0))
+
+    dx = np.reshape(dx.T, (N, C, H, W))
     ###########################################################################
     #                             END OF YOUR CODE                            #
     ###########################################################################
